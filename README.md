@@ -1,6 +1,6 @@
 # MPRA
 
-
+Edits for the myeloma cell lines. Myeloma MPRA has no negative controls. This shouldn't matter as we are only interested in a comparative analysis.
 
 ## Getting started
 
