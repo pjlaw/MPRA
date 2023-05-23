@@ -2,7 +2,8 @@ library(tidyverse)
 library(glue)
 library(MPRAnalyze)
 
-cell_line = "RPMI_8226" #"KMS_11" #"L363" 
+cell_line="RPMI_8226" #KMS_11 #L363
+
 setwd(paste0("//cancgene/cancgene/shared/Mol and Pop Genetics Team/Lab Members/Molly/GWAS Work/MPRA/MPRAnalyze/", cell_line))
 
 dna_dat=read_tsv("dna_counts.tsv")
@@ -99,7 +100,6 @@ rna_dat0 = rna_dat0 %>% replace(is.na(.),0)
 all(dna_mat$rsid ==rna_mat$rsid)
 snp_data = dna_mat$rsid
 
-#don't want to include control SNPs
 #control_snps = manifest %>% filter(dir=="ctrl") %>% pull(rsid)
 #is_control = snp_data %in% control_snps
 
@@ -129,13 +129,10 @@ rownames(rna_annot) = rna_annot$sample
 #create MpraObject
 obj = MpraObject(dnaCounts=dna_mat, rnaCounts=rna_mat, dnaAnnot=dna_annot, rnaAnnot=rna_annot)
 obj <- estimateDepthFactors(obj, lib.factor = "replicate", which.lib = "both", depth.estimator = "uq")
-saveRDS(obj, "RPMI8226_mpranalyze_obj.rds")
-
-#obj = readRDS(paste0(cell_line,"_mpranalyze_obj_extraQC_",max_barcodes, ".rds"))
+saveRDS(obj, paste0(cell_line,"_mpranalyze_obj.rds"))
 
 obj = analyzeComparative(obj, dnaDesign = ~ barcode_full+replicate+allele+dir,
                          rnaDesign = ~replicate+allele+dir,
                          reducedDesign = ~replicate+dir, mode='scale')
 res <- testLrt(obj)
-write_tsv(res %>% rownames_to_column(), "RPMI8226_mpranalyze_res_testrun.txt")
-
+write_tsv(res %>% rownames_to_column(), paste0(cell_line,"_mpranalyze.txt")
