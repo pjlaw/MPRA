@@ -251,3 +251,90 @@ obj = readRDS(paste0(cell_line,"_mpranalyze_obj_extraQC_",max_barcodes, ".rds"))
 obj = analyzeComparative(obj, dnaDesign = ~ barcode_full+replicate+allele+dir, rnaDesign = ~replicate+allele+dir, reducedDesign = ~replicate+dir, BPPARAM=MulticoreParam())
 res <- testLrt(obj)
 write_tsv(res %>% rownames_to_column(), paste0(cell_line,"_mpranalyze_res_extraQC_",max_barcodes, ".txt"))
+
+
+######
+
+labeled_counts=read_tsv(paste0(cell_line, "_final_labeled_counts.txt"))
+
+#exlcude snps with no name/unassigned
+clean_counts=labeled_counts %>% filter(label!="no_BC" & !(startsWith(label, "..")) ) %>% select(-Sequence, -Barcode)
+clean_counts = clean_counts  %>% replace(is.na(.),0)
+colnames(clean_counts) = c("label", "DNA_1", "DNA_2", "DNA_3", "RNA_1", "RNA_2", "RNA_3")
+
+#correct for snps missing rsid - should only be one (rs113101564)
+#missing_names=which(snp_data=="")
+#snp_data[missing_names]=paste0("missing_", missing_names)
+
+#group by barcode name
+n_bc_indiv = clean_counts %>% group_by(label) %>% summarise(n=n())
+#separate name into components
+n_bc_indiv = n_bc_indiv %>% separate(label, into=c("rsid", "allele", "dir"), remove=F)
+#group again by rsid
+n_bc_grouped = n_bc_indiv %>% group_by(rsid) %>% summarise(n=n())
+print(paste(nrow(n_bc_grouped), "variants mapped to barcodes"))
+
+#find those that have all 4 barcode types (fwd_ref, fwd_alt, rev_ref, rev_alt)
+wanted_variants = n_bc_grouped %>% filter(n==4) %>% pull(rsid)
+print(paste("there are", length(wanted_variants), "variants with complete information"))
+
+clean_counts = clean_counts %>% separate(label, into=c("rsid", "allele", "dir"), remove=F)
+clean_counts = clean_counts %>% filter(rsid %in% wanted_variants)
+
+#clean data further, only keeping dna if corresponding rna is also present in the same replicate (and vice versa)
+for (i in 1:3){
+  wanted_dna=paste0("DNA_",i)
+  wanted_rna=paste0("RNA_",i)
+  this_dna=clean_counts %>% pull({{wanted_dna}})
+  this_rna=clean_counts %>% pull({{wanted_rna}})
+  counts = this_dna*this_rna
+  zero_counts = which(counts==0)
+  this_dna[zero_counts]=0
+  this_rna[zero_counts]=0
+
+  clean_counts[{{wanted_dna}}]=this_dna
+  clean_counts[{{wanted_rna}}]=this_rna
+
+}
+
+#remove any barcodes where count is now zero across all replicates
+row_counts = clean_counts%>% select(-label, -rsid, -allele, -dir) %>% rowSums()
+clean_counts = clean_counts[which(row_counts>0),]
+
+
+dna_counts=clean_counts %>% select(rsid, allele, dir, starts_with("DNA"))
+dna_mat = dna_counts %>% group_by(rsid, allele, dir) %>% mutate(n = 1:n()) %>% pivot_wider(names_from=c(allele, dir, n), values_from=starts_with("DNA"), values_fill = 0)
+
+rna_counts=clean_counts %>% select(rsid, allele, dir, starts_with("RNA"))
+rna_mat = rna_counts %>% group_by(rsid, allele, dir) %>% mutate(n = 1:n()) %>% pivot_wider(names_from=c(allele, dir, n), values_from=starts_with("RNA"), values_fill = 0)
+
+# # drop name column, convert to matrix (required by MPRAnalyze), readd rsid as rownames
+snp_data = dna_mat %>% pull(rsid)
+dna_mat = as.matrix(dna_mat %>% ungroup() %>% select(-rsid))
+rownames(dna_mat)=snp_data
+rna_mat = as.matrix(rna_mat %>% ungroup() %>% select(-rsid))
+rownames(rna_mat)=snp_data
+
+#get control snps
+variant_annot=read_tsv("/data/scratch/DGE/DUDGE/MOPOPGEN/plaw/MPRA/CRC_MPRA_design_library_all_variants_v3_newgwas_with_controls")
+control_snps = variant_annot %>% filter(test_control=="control") %>% pull(rsid)
+is_control = snp_data %in% control_snps
+
+#
+#make annotation dataframes from matrix column names
+dna_annot = tibble(sample=colnames(dna_mat))
+dna_annot = dna_annot %>% separate(sample, into=c("type", "replicate", "allele", "dir", "barcode"), remove=F, sep="_")
+dna_annot = dna_annot %>% mutate(barcode_full=glue("{barcode}_{allele}_{dir}"))
+rna_annot = tibble(sample=colnames(rna_mat))
+rna_annot = rna_annot %>% separate(sample, into=c("type", "replicate", "allele", "dir", "barcode"), remove=F, sep="_")
+rna_annot = rna_annot %>% mutate(barcode_full=glue("{barcode}_{allele}_{dir}"))
+
+#make columns into factors
+dna_annot = dna_annot %>% mutate(across(everything(), as.factor))
+dna_annot = as.data.frame(dna_annot)
+rownames(dna_annot) = dna_annot$sample
+
+rna_annot = rna_annot %>% mutate(across(everything(), as.factor))
+rna_annot = as.data.frame(rna_annot)
+rownames(rna_annot) = rna_annot$sample
+#
