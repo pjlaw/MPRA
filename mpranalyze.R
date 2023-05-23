@@ -135,4 +135,4 @@ obj = analyzeComparative(obj, dnaDesign = ~ barcode_full+replicate+allele+dir,
                          rnaDesign = ~replicate+allele+dir,
                          reducedDesign = ~replicate+dir, mode='scale')
 res <- testLrt(obj)
-write_tsv(res %>% rownames_to_column(), paste0(cell_line,"_mpranalyze.txt")
+write_tsv(res %>% rownames_to_column(), paste0(cell_line,"_mpranalyze.txt"))
